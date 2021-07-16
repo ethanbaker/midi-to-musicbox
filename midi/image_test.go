@@ -9,7 +9,7 @@ import (
 func Test_ConvertImage(t *testing.T) {
 	var f midi.MidiFile
 
-	f.Parse("./midi.mid", "./output.mid")
+	f.Parse("./testing/midi.mid")
 
-	midi.CreateImage(f)
+	midi.CreateImage(f, "./testing/image.png")
 }

@@ -201,7 +201,7 @@ type NoteTrack struct {
 const MILLI_CONVERSION_RATE = 0.2645833333
 
 // CreateImage function creates an image based on the MidiFile
-func CreateImage(file MidiFile) {
+func CreateImage(file MidiFile, outputPath string) {
 	// Specific parameters for music box
 	var notes []string = []string{"C4", "D4", "E4", "F4", "G4"}
 	USER_NOTE_SIZE := 5.0
@@ -257,6 +257,6 @@ func CreateImage(file MidiFile) {
 	}
 
 	// Encode as PNG
-	f, _ := os.Create("image.png")
+	f, _ := os.Create(outputPath)
 	png.Encode(f, img)
 }

@@ -167,7 +167,7 @@ func (f *MidiFile) readValue() int32 {
 	return val
 }
 
-func (f *MidiFile) Parse(inputPath string, outputPath string) bool {
+func (f *MidiFile) Parse(inputPath string) bool {
 	// Open the MIDI file as a stream
 	file, err := os.Open(inputPath)
 	if err != nil {
