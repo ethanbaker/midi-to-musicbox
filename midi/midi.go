@@ -8,75 +8,7 @@ import (
 	"os"
 )
 
-// Constants
-const (
-	// For MidiTracks
-	Max_Note = 64
-	Min_Note = 64
-
-	// For events
-	VoiceNoteOff         = 0x80
-	VoiceNoteOn          = 0x90
-	VoiceAftertouch      = 0xA0
-	VoiceControlChange   = 0xB0
-	VoiceProgramChange   = 0xC0
-	VoiceChannelPressure = 0xD0
-	VoicePitchBend       = 0xE0
-	SystemExclusive      = 0xF0
-
-	// For meta events
-	MetaSequence          = 0x00
-	MetaText              = 0x01
-	MetaCopyright         = 0x02
-	MetaTrackName         = 0x03
-	MetaInstrumentName    = 0x04
-	MetaLyrics            = 0x05
-	MetaMarker            = 0x06
-	MetaCuePoint          = 0x07
-	MetaChannelPrefix     = 0x20
-	MetaEndOfTrack        = 0x2F
-	MetaSetTempo          = 0x51
-	MetaSMPTEOffset       = 0x54
-	MetaTimeSignature     = 0x58
-	MetaKeySignature      = 0x59
-	MetaSequencerSpecific = 0x7F
-)
-
-// MidiEvent type used to hold information from an event
-type MidiEvent struct {
-	Name      string `json:"name"`
-	Key       byte   `json:"key"`
-	Velocity  byte   `json:"velocity"`
-	DeltaTick int32  `json:"deltaTick"`
-}
-
-// MidiNote type used to hold information from a note
-type MidiNote struct {
-	Key       byte  `json:"key"`
-	Velocity  byte  `json:"velocity"`
-	StartTime int32 `json:"startTime"`
-	Duration  int32 `json:"duration"`
-}
-
-// MidiTrack type used to hold information from a track
-type MidiTrack struct {
-	Name       string      `json:"name"`
-	Instrument string      `json:"instrument"`
-	Min        byte        `json:"min"`
-	Max        byte        `json:"max"`
-	Events     []MidiEvent `json:"events"`
-	Notes      []MidiNote  `json:"notes"`
-}
-
-type MidiFile struct {
-	Tracks       []MidiTrack `json:"tracks"`
-	Tempo        int32       `json:"tempo"`
-	TimeDivision int16       `json:"timeDivision"`
-	reader       *bufio.Reader
-	atEof        bool
-}
-
-// Helper functions
+// Helper functions ---------------------------------------------------
 
 // byteToInt32 converts an array of bytes to an 32 bit integer
 func byteToInt32(b []byte) int32 {
@@ -106,13 +38,15 @@ func byteToInt16(b []byte) int16 {
 	return n
 }
 
-// handleError handles all errors and checks specifically for an EOF error
+// MidiFile functions -------------------------------------------------
+
+// handleError handles all errors and ignores any EOF errors
 func (f *MidiFile) handleError(err error) {
 	if err == io.EOF {
 		return
 	}
 
-	log.Fatal(err)
+	f.Err = err
 }
 
 // readString reads 'n' bytes from the scanner
@@ -143,16 +77,16 @@ func (f *MidiFile) readValue() int32 {
 	val = int32(v)
 
 	// Check if more bytes need reading
-	if val > 127 {
+	if val > 0x7F {
 		// Extract the bottom 7 bits of the read byte
-		val &= 127
+		val &= 0x7F
 
 		// Keep reading bytes until the compression has stopped
 		b, err = f.reader.ReadByte()
 		if err != nil {
 			f.handleError(err)
 		}
-		for b > 127 {
+		for b > 0x7F {
 			// Read the next byte
 			b, err = f.reader.ReadByte()
 			if err != nil {
@@ -160,14 +94,15 @@ func (f *MidiFile) readValue() int32 {
 			}
 
 			// Add the next byte to the value
-			val = (val << 7) | int32(b&127)
+			val = (val << 7) | int32(b&0x7F)
 		}
 	}
 
 	return val
 }
 
-func (f *MidiFile) Parse(inputPath string) bool {
+// Parse parses the MIDI file and creates a struct to hold the info
+func (f *MidiFile) Parse(inputPath string) {
 	// Open the MIDI file as a stream
 	file, err := os.Open(inputPath)
 	if err != nil {
@@ -177,12 +112,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 
 	// Create a scanner to read all of the bytes
 	f.reader = bufio.NewReader(file)
-
-	// Filler variables to save memory
 	var b []byte
-
-	// Read the MIDI Header
-	fmt.Println("Starting parse")
 
 	// Read the File ID
 	b, err = f.reader.Peek(4)
@@ -191,7 +121,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 	}
 	fileId := string(b)
 	if fileId != "MThd" {
-		log.Fatal("File ID is not 'MThd', aborting!")
+		f.handleError(fmt.Errorf("Corrupted MIDI header"))
 	}
 	_, err = f.reader.Discard(4)
 	if err != nil {
@@ -205,7 +135,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 	}
 	headerLength := byteToInt32(b)
 	if headerLength != 6 {
-		log.Fatal("Header length is not '6', aborting!")
+		f.handleError(fmt.Errorf("Corrupted MIDI header"))
 	}
 	_, err = f.reader.Discard(4)
 	if err != nil {
@@ -217,7 +147,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 	if err != nil {
 		f.handleError(err)
 	}
-	format := byteToInt16(b)
+	_ = byteToInt16(b)
 	_, err = f.reader.Discard(2)
 	if err != nil {
 		f.handleError(err)
@@ -245,18 +175,10 @@ func (f *MidiFile) Parse(inputPath string) bool {
 		f.handleError(err)
 	}
 
-	fmt.Println("Parsed file id:", fileId)
-	fmt.Println("Parsed header length:", headerLength)
-	fmt.Println("Parsed format number:", format)
-	fmt.Println("Parsed track number:", trackNumber)
-	fmt.Println("Parsed time division:", f.TimeDivision)
-
 	// Read the track chunks
 	for trackIndex := 0; trackIndex < int(trackNumber); trackIndex++ {
-		fmt.Println("========== Starting track", trackIndex)
-
 		// Add the track to the list of tracks
-		var track MidiTrack
+		var track midiTrack
 		track.Min = 64
 		track.Max = 64
 		f.Tracks = append(f.Tracks, track)
@@ -268,7 +190,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 		}
 		trackId := string(b)
 		if trackId != "MTrk" {
-			log.Fatal("Track ID of track " + fmt.Sprint(trackIndex) + " is not `MTrk`, aborting!")
+			f.handleError(fmt.Errorf("Track ID of track " + fmt.Sprint(trackIndex) + " is not `MTrk`, aborting!"))
 		}
 		_, err = f.reader.Discard(4)
 		if err != nil {
@@ -280,18 +202,16 @@ func (f *MidiFile) Parse(inputPath string) bool {
 		if err != nil {
 			f.handleError(err)
 		}
-		trackLength := byteToInt32(b)
+		_ = byteToInt32(b)
 		_, err = f.reader.Discard(4)
 		if err != nil {
 			f.handleError(err)
 		}
 
-		fmt.Println("Parsed track ID:", trackId)
-		fmt.Println("Parsed track length:", trackLength)
-
-		// Read the rest of the track data
+		// Initalize the previous status byte
 		var previousStatus byte
 
+		// Make sure we catch when we are at the end of the track or EOF
 		endOfTrack := false
 		f.atEof = false
 		for !f.atEof && !endOfTrack {
@@ -332,11 +252,9 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				event := MidiEvent{"NoteOff", noteId, noteVelocity, statusTimeDelta}
+				// Create a new midiEvent and add it to the current track
+				event := midiEvent{"NoteOff", noteId, noteVelocity, statusTimeDelta}
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
-
-				fmt.Println("NoteOff added")
 
 			case VoiceNoteOn:
 				previousStatus = status
@@ -353,16 +271,14 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				var event MidiEvent
+				// Create a new midiEvent and add it to the current track
+				var event midiEvent
 				if noteVelocity == 0 {
-					event = MidiEvent{"NoteOff", noteId, noteVelocity, statusTimeDelta}
+					event = midiEvent{"NoteOff", noteId, noteVelocity, statusTimeDelta}
 				} else {
-					event = MidiEvent{"NoteOn", noteId, noteVelocity, statusTimeDelta}
+					event = midiEvent{"NoteOn", noteId, noteVelocity, statusTimeDelta}
 				}
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
-
-				fmt.Println("NoteOn added")
 
 			case VoiceAftertouch:
 				previousStatus = status
@@ -379,8 +295,8 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				var event MidiEvent
+				// Create a new midiEvent and add it to the current track
+				var event midiEvent
 				event.Name = "Other"
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
 
@@ -399,8 +315,8 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				var event MidiEvent
+				// Create a new midiEvent and add it to the current track
+				var event midiEvent
 				event.Name = "Other"
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
 
@@ -413,8 +329,8 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				var event MidiEvent
+				// Create a new midiEvent and add it to the current track
+				var event midiEvent
 				event.Name = "Other"
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
 
@@ -427,8 +343,8 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				var event MidiEvent
+				// Create a new midiEvent and add it to the current track
+				var event midiEvent
 				event.Name = "Other"
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
 
@@ -447,8 +363,8 @@ func (f *MidiFile) Parse(inputPath string) bool {
 					f.handleError(err)
 				}
 
-				// Create a new MidiEvent and add it to the current track
-				var event MidiEvent
+				// Create a new midiEvent and add it to the current track
+				var event midiEvent
 				event.Name = "Other"
 				f.Tracks[trackIndex].Events = append(f.Tracks[trackIndex].Events, event)
 
@@ -467,45 +383,42 @@ func (f *MidiFile) Parse(inputPath string) bool {
 
 					switch nType {
 					case MetaSequence:
-						num1, err := f.reader.ReadByte()
+						_, err := f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						num2, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
-						fmt.Println("Sequence number: " + fmt.Sprint(num1) + fmt.Sprint(num2))
 
 					case MetaText:
-						fmt.Println("Text: " + f.readString(length))
+						_ = f.readString(length)
 
 					case MetaCopyright:
-						fmt.Println("Copyright: " + f.readString(length))
+						_ = f.readString(length)
 
 					case MetaTrackName:
 						f.Tracks[trackIndex].Name = f.readString(length)
-						fmt.Println("Track name: " + f.Tracks[trackIndex].Name)
 
 					case MetaInstrumentName:
 						f.Tracks[trackIndex].Instrument = f.readString(length)
-						fmt.Println("Instrument name: " + f.Tracks[trackIndex].Instrument)
 
 					case MetaLyrics:
-						fmt.Println("Lyrics: " + f.readString(length))
+						_ = f.readString(length)
 
 					case MetaMarker:
-						fmt.Println("Marker: " + f.readString(length))
+						_ = f.readString(length)
 
 					case MetaCuePoint:
-						fmt.Println("Cue: " + f.readString(length))
+						_ = f.readString(length)
 
 					case MetaChannelPrefix:
-						fmt.Println("Prefix: " + f.readString(length))
+						_ = f.readString(length)
 
 					case MetaEndOfTrack:
-						fmt.Println("End of track")
+						_ = f.readString(length)
 						endOfTrack = true
 
 					case MetaSetTempo:
@@ -533,86 +446,72 @@ func (f *MidiFile) Parse(inputPath string) bool {
 							f.Tempo |= int32(t3) << 0
 
 							// Display the tempo (and bpm)
-							bpm := (60000000 / f.Tempo)
-
-							fmt.Println("Tempo: " + fmt.Sprint(f.Tempo) + " (BPM: " + fmt.Sprint(bpm) + ")")
+							f.Bpm = (60000000 / f.Tempo)
 						}
 
 					case MetaSMPTEOffset:
-						// Get the attributes
-						h, err := f.reader.ReadByte()
+						// Get various offset attributes
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						m, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						s, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						fr, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						ff, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
-
-						// Display the attributes
-						fmt.Println("SMPTE: H:" + fmt.Sprint(h) + " M:" + fmt.Sprint(m) + " S:" + fmt.Sprint(s) + " FR:" + fmt.Sprint(fr) + "FF:" + fmt.Sprint(ff))
 
 					case MetaTimeSignature:
-						// Get the attributes
-						ts1, err := f.reader.ReadByte()
+						// Get various time signature attributes
+						_, err := f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						ts2, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						cpt, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						per24c, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
-
-						// Display the attributes
-						fmt.Println("Time signature: " + fmt.Sprint(ts1) + " / " + fmt.Sprint(2<<ts2))
-						fmt.Println("Clocks per tick: " + fmt.Sprint(cpt))
-						fmt.Println("32 per 24 clocks: " + fmt.Sprint(per24c))
 
 					case MetaKeySignature:
-						// Get the attributes
-						keySignature, err := f.reader.ReadByte()
+						// Get key attributes
+						_, err := f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
 
-						minorKey, err := f.reader.ReadByte()
+						_, err = f.reader.ReadByte()
 						if err != nil {
 							f.handleError(err)
 						}
-
-						// Display the attributes
-						fmt.Println("Key signature: " + fmt.Sprint(keySignature))
-						fmt.Println("Minor key: " + fmt.Sprint(minorKey))
 
 					case MetaSequencerSpecific:
-						fmt.Println("Sequencer specifics: " + f.readString(length))
+						_ = f.readString(length)
 
 					default:
 						fmt.Println("Warning! Unrecognized MetaEvent " + fmt.Sprint(nType))
@@ -620,13 +519,13 @@ func (f *MidiFile) Parse(inputPath string) bool {
 				}
 
 				if status == 0xF0 {
-					fmt.Println("System exclusive begin: " + f.readString(f.readValue()))
+					_ = f.readString(f.readValue())
 				} else if status == 0xF7 {
-					fmt.Println("System exclusive end: " + f.readString(f.readValue()))
+					_ = f.readString(f.readValue())
 				}
 
 			default:
-				fmt.Println("Unrecognized status byte: " + fmt.Sprint(status))
+				fmt.Println("Warning! Unrecognized status byte: " + fmt.Sprint(status))
 
 			}
 		}
@@ -634,7 +533,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 
 	// Convert time events to notes
 	for index, _ := range f.Tracks {
-		var notesBeingProcessed []MidiNote
+		var notesBeingProcessed []midiNote
 		var wallTime int32
 
 		for _, event := range f.Tracks[index].Events {
@@ -642,7 +541,7 @@ func (f *MidiFile) Parse(inputPath string) bool {
 
 			if event.Name == "NoteOn" {
 				// Add an 'NoteOn' to the processing notes
-				note := MidiNote{event.Key, event.Velocity, wallTime, 0}
+				note := midiNote{event.Key, event.Velocity, wallTime, 0}
 				notesBeingProcessed = append(notesBeingProcessed, note)
 			} else if event.Name == "NoteOff" {
 				// Remove an 'NoteOn' if it exists from processing notes
@@ -669,6 +568,4 @@ func (f *MidiFile) Parse(inputPath string) bool {
 			}
 		}
 	}
-
-	return true
 }

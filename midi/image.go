@@ -1,262 +1,128 @@
 package midi
 
 import (
-	"fmt"
 	"image"
-	"image/color"
-	"image/png"
-	"os"
+	"math"
 )
 
-// Midi note conversion to piano note
-var midiToPiano = map[byte]int{
-	21:  1,
-	22:  2,
-	23:  3,
-	24:  4,
-	25:  5,
-	26:  6,
-	27:  7,
-	28:  8,
-	29:  9,
-	30:  10,
-	31:  11,
-	32:  12,
-	33:  13,
-	34:  14,
-	35:  15,
-	36:  16,
-	37:  17,
-	38:  18,
-	39:  19,
-	40:  20,
-	41:  21,
-	42:  22,
-	43:  23,
-	44:  24,
-	45:  25,
-	46:  26,
-	47:  27,
-	48:  28,
-	49:  29,
-	50:  30,
-	51:  31,
-	52:  32,
-	53:  33,
-	54:  34,
-	55:  35,
-	56:  36,
-	57:  37,
-	58:  38,
-	59:  39,
-	60:  40,
-	61:  41,
-	62:  42,
-	63:  43,
-	64:  44,
-	65:  45,
-	66:  46,
-	67:  47,
-	68:  48,
-	69:  49,
-	70:  50,
-	71:  51,
-	72:  52,
-	73:  53,
-	74:  54,
-	75:  55,
-	76:  56,
-	77:  57,
-	78:  58,
-	79:  59,
-	80:  60,
-	81:  61,
-	82:  62,
-	83:  63,
-	84:  64,
-	85:  65,
-	86:  66,
-	87:  67,
-	88:  68,
-	89:  69,
-	90:  70,
-	91:  71,
-	92:  72,
-	93:  73,
-	94:  74,
-	95:  75,
-	96:  76,
-	97:  77,
-	98:  78,
-	99:  79,
-	100: 80,
-	101: 81,
-	102: 82,
-	103: 83,
-	104: 84,
-	105: 85,
-	106: 86,
-	107: 87,
-	108: 88,
-}
+// CreateImage function creates an image based on the midiFile
+func (img *MidiImage) CreateImage() {
+	// Get information from the selected track in the file
+	midiTrack := img.File.Tracks[img.Track]
+	notes := midiTrack.Notes
 
-// Midi Note to name conversion
-var midiToName = map[byte]string{
-	21:  "A0",
-	22:  "A#0/Bb0",
-	23:  "B0",
-	24:  "C1",
-	25:  "C#1/Db1",
-	26:  "D1",
-	27:  "D#1/Eb1",
-	28:  "E1",
-	29:  "F1",
-	30:  "F#1/Gb1",
-	31:  "G1",
-	32:  "G#1/Ab1",
-	33:  "A1",
-	34:  "A#1/Bb1",
-	35:  "B1",
-	36:  "C2",
-	37:  "C#2/Db2",
-	38:  "D2",
-	39:  "D#2/Eb2",
-	40:  "E2",
-	41:  "F2",
-	42:  "F#2/Gb2",
-	43:  "G2",
-	44:  "G#2/Ab2",
-	45:  "A2",
-	46:  "A#2/Bb2",
-	47:  "B2",
-	48:  "C3",
-	49:  "C#3/Db3",
-	50:  "D3",
-	51:  "D#3/Eb3",
-	52:  "E3",
-	53:  "F3",
-	54:  "F#3/Gb3",
-	55:  "G3",
-	56:  "G#3/Ab3",
-	57:  "A3",
-	58:  "A#3/Bb3",
-	59:  "B3",
-	60:  "C4",
-	61:  "C#4/Db4",
-	62:  "D4",
-	63:  "D#4/Eb4",
-	64:  "E4",
-	65:  "F4",
-	66:  "F#4/Gb4",
-	67:  "G4",
-	68:  "G#4/Ab4",
-	69:  "A4",
-	70:  "A#4/Bb4",
-	71:  "B4",
-	72:  "C5",
-	73:  "C#5/Db5",
-	74:  "D5",
-	75:  "D#5/Eb5",
-	76:  "E5",
-	77:  "F5",
-	78:  "F#5/Gb5",
-	79:  "G5",
-	80:  "G#5/Ab5",
-	81:  "A5",
-	82:  "A#5/Bb5",
-	83:  "B5",
-	84:  "C6",
-	85:  "C#6/Db6",
-	86:  "D6",
-	87:  "D#6/Eb6",
-	88:  "E6",
-	89:  "F6",
-	90:  "F#6/Gb6",
-	91:  "G6",
-	92:  "G#6/Ab6",
-	93:  "A6",
-	94:  "A#6/Bb6",
-	95:  "B6",
-	96:  "C7",
-	97:  "C#7/Db7",
-	98:  "D7",
-	99:  "D#7/Db7",
-	100: "E7",
-	101: "F7",
-	102: "F#7/Gb7",
-	103: "G7",
-	104: "G#7/Ab7",
-	105: "A7",
-	106: "A#7/Bb7",
-	107: "B7",
-	108: "C8",
-}
+	// Get the size of one channel (and the offset for every set amount of channels)
+	channelSize := int((img.Height / MILLI_TO_PIXELS) / float64(len(img.Notes)))
+	rawOffset := math.Abs(img.Height/MILLI_TO_PIXELS-float64(channelSize*len(img.Notes))) / float64(len(img.Notes))
+	offset := int(rawOffset) + 1
+	offsetCount := int(img.Height/MILLI_TO_PIXELS-float64(channelSize*len(img.Notes))) / offset
+	offsetIndex := len(img.Notes)
 
-type NoteTrack struct {
-	name  string
-	notes []float64
-}
+	// Get the width and height of the sheet
+	width := int(notes[len(notes)-1].StartTime/TIME_PER_COLUMN)*img.Speed + img.Speed
+	height := int(img.Height/MILLI_TO_PIXELS) + 1
 
-// Conversion rate from pixels to millimeters
-const MILLI_CONVERSION_RATE = 0.2645833333
-
-// CreateImage function creates an image based on the MidiFile
-func CreateImage(file MidiFile, outputPath string) {
-	// Specific parameters for music box
-	var notes []string = []string{"C4", "D4", "E4", "F4", "G4"}
-	USER_NOTE_SIZE := 5.0
-	TRACK := 1
-
-	// Important calculations for sheet size
-	noteSize := int(USER_NOTE_SIZE/MILLI_CONVERSION_RATE) + 1
-	height := noteSize * len(notes)
-	width := 200
-
-	// Get the top left and bottom right points of the image
+	// Create a new image using the bottom
 	topLeft := image.Point{0, 0}
 	bottomRight := image.Point{width, height}
+	img.Picture = image.NewRGBA(image.Rectangle{topLeft, bottomRight})
 
-	// Create an image
-	img := image.NewRGBA(image.Rectangle{topLeft, bottomRight})
+	// Create a blank grid and keep track of when the channels start
+	var channels []int
+	for y := 0; y < height; y++ {
+		tempOffsetIndex := 0
+		if offsetIndex < offsetCount {
+			tempOffsetIndex = 1
+		}
 
-	// Create a color
-	black := color.RGBA{0, 0, 0, 0xFF}
-	white := color.RGBA{255, 255, 255, 0xFF}
+		for x := 0; x < width; x++ {
+			if y%(channelSize+offset*tempOffsetIndex) == 0 {
+				img.Picture.Set(x, y+offset*tempOffsetIndex, black)
+				if x == 0 {
+					channels = append(channels, y+offset*tempOffsetIndex)
+				}
 
-	// Create a grid
-	for x := 0; x < width; x++ {
-		for y := 0; y < height; y++ {
-			if y%noteSize == 0 {
-				img.Set(x, y, black)
+				if offsetIndex == 0 {
+					offsetIndex = offsetCount
+				}
+				offsetIndex--
 			} else {
-				img.Set(x, y, white)
+				img.Picture.Set(x, y+offset*tempOffsetIndex, white)
 			}
 		}
 	}
 
-	// Add the notes
-	var noteTracks []NoteTrack
-	for i := 0; i < len(notes); i++ {
-		var track NoteTrack
-		track.name = notes[i]
-		noteTracks = append(noteTracks, track)
+	// Initialize the tracks to hold the notes
+	var tracks []*noteTrack
+	for i := 0; i < len(img.Notes); i++ {
+		var track noteTrack
+		track.name = img.Notes[i]
+		tracks = append(tracks, &track)
 	}
 
-	secondsPerTick := 60000.0 / float64(file.Tempo*int32(file.TimeDivision))
+	// Add the midi notes from the file to the tracks
+	for _, midiNote := range notes {
+		// Get the note from the file
+		note := float64(midiNote.StartTime) / TIME_PER_COLUMN
 
-	for _, midiNote := range file.Tracks[TRACK].Notes {
-		note := secondsPerTick * float64(midiNote.StartTime)
-
-		for _, track := range noteTracks {
-			if track.name == midiToName[midiNote.Key] {
+		for _, track := range tracks {
+			if track.name == midiToNote[midiNote.Key] {
 				track.notes = append(track.notes, note)
-				fmt.Println(len(track.notes))
 				break
 			}
 		}
 	}
 
-	// Encode as PNG
-	f, _ := os.Create(outputPath)
-	png.Encode(f, img)
+	// Draw the notes to the image
+	for channel, track := range tracks {
+		for _, note := range track.notes {
+			x := img.Speed/2 + int(note*float64(img.Speed))
+			y := channelSize/2 + channels[channel]
+			r := (channelSize-4)/2 + 1
+			drawCircle(img.Picture, x, y, r)
+		}
+	}
+
+}
+
+// TODO fix drawCircle function
+// Helper function to draw a circle on the image
+func drawCircle(img *image.RGBA, x0 int, y0 int, r int) {
+	if r == 0 {
+		img.Set(x0, y0, black)
+		return
+	}
+
+	x, y := r-1, 0
+	dy, dx := 1, 1
+	err := dx - (r * 2)
+
+	for x > y {
+		img.Set(x0+x, y0+y, black)
+		img.Set(x0+y, y0+x, black)
+		img.Set(x0-y, y0+x, black)
+		img.Set(x0-x, y0+y, black)
+		img.Set(x0-x, y0-y, black)
+		img.Set(x0-y, y0-x, black)
+		img.Set(x0+y, y0-x, black)
+		img.Set(x0+x, y0-y, black)
+
+		if err <= 0 {
+			y++
+			err += dy
+			dy += 2
+		}
+		if err > 0 {
+			x--
+			dx += 2
+			err += dx - (r * 2)
+		}
+	}
+
+	img.Set(x0+(r/2)+1, y0+(r/2)+1, black)
+	img.Set(x0-(r/2)-1, y0+(r/2)+1, black)
+	img.Set(x0+(r/2)+1, y0-(r/2)-1, black)
+	img.Set(x0-(r/2)-1, y0-(r/2)-1, black)
+
+	drawCircle(img, x0, y0, r-1)
 }
